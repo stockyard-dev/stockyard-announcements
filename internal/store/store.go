@@ -1,0 +1,12 @@
+package store
+import("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
+type DB struct{*sql.DB}
+type Announcement struct{ID int64 `json:"id"`;Title string `json:"title"`;Body string `json:"body"`;Author string `json:"author"`;Pinned bool `json:"pinned"`;ReadCount int `json:"read_count"`;CreatedAt time.Time `json:"created_at"`}
+type Read struct{ID int64 `json:"id"`;AnnouncementID int64 `json:"announcement_id"`;Name string `json:"name"`;ReadAt time.Time `json:"read_at"`}
+func Open(d string)(*DB,error){os.MkdirAll(d,0755);dsn:=filepath.Join(d,"announcements.db")+"?_journal_mode=WAL&_busy_timeout=5000";db,err:=sql.Open("sqlite",dsn);if err!=nil{return nil,fmt.Errorf("open: %w",err)};db.SetMaxOpenConns(1);migrate(db);return &DB{db},nil}
+func migrate(db *sql.DB){db.Exec(`CREATE TABLE IF NOT EXISTS announcements(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,body TEXT DEFAULT '',author TEXT DEFAULT '',pinned INTEGER DEFAULT 0,read_count INTEGER DEFAULT 0,created_at DATETIME DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS reads(id INTEGER PRIMARY KEY AUTOINCREMENT,announcement_id INTEGER NOT NULL,name TEXT NOT NULL,read_at DATETIME DEFAULT CURRENT_TIMESTAMP,UNIQUE(announcement_id,name))`)}
+func(db *DB)Create(a *Announcement)error{pin:=0;if a.Pinned{pin=1};res,err:=db.Exec(`INSERT INTO announcements(title,body,author,pinned)VALUES(?,?,?,?)`,a.Title,a.Body,a.Author,pin);if err!=nil{return err};a.ID,_=res.LastInsertId();return nil}
+func(db *DB)List()([]Announcement,error){rows,_:=db.Query(`SELECT a.id,a.title,a.body,a.author,a.pinned,COUNT(r.id),a.created_at FROM announcements a LEFT JOIN reads r ON r.announcement_id=a.id GROUP BY a.id ORDER BY a.pinned DESC,a.created_at DESC`);defer rows.Close();var out[]Announcement;for rows.Next(){var a Announcement;var pin int;rows.Scan(&a.ID,&a.Title,&a.Body,&a.Author,&pin,&a.ReadCount,&a.CreatedAt);a.Pinned=pin==1;out=append(out,a)};return out,nil}
+func(db *DB)MarkRead(announcementID int64,name string){db.Exec(`INSERT OR IGNORE INTO reads(announcement_id,name)VALUES(?,?)`,announcementID,name);db.Exec(`UPDATE announcements SET read_count=(SELECT COUNT(*) FROM reads WHERE announcement_id=?) WHERE id=?`,announcementID,announcementID)}
+func(db *DB)Delete(id int64){db.Exec(`DELETE FROM reads WHERE announcement_id=?`,id);db.Exec(`DELETE FROM announcements WHERE id=?`,id)}
+func(db *DB)Stats()(map[string]interface{},error){var total int;db.QueryRow(`SELECT COUNT(*) FROM announcements`).Scan(&total);return map[string]interface{}{"announcements":total},nil}
