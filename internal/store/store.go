@@ -21,5 +21,25 @@ func now()string{return time.Now().UTC().Format(time.RFC3339)}
 func(d *DB)Create(e *Announcement)error{e.ID=genID();e.CreatedAt=now();_,err:=d.db.Exec(`INSERT INTO announcements(id,title,body,author,priority,channel,pinned,expires_at,created_at)VALUES(?,?,?,?,?,?,?,?,?)`,e.ID,e.Title,e.Body,e.Author,e.Priority,e.Channel,e.Pinned,e.ExpiresAt,e.CreatedAt);return err}
 func(d *DB)Get(id string)*Announcement{var e Announcement;if d.db.QueryRow(`SELECT id,title,body,author,priority,channel,pinned,expires_at,created_at FROM announcements WHERE id=?`,id).Scan(&e.ID,&e.Title,&e.Body,&e.Author,&e.Priority,&e.Channel,&e.Pinned,&e.ExpiresAt,&e.CreatedAt)!=nil{return nil};return &e}
 func(d *DB)List()[]Announcement{rows,_:=d.db.Query(`SELECT id,title,body,author,priority,channel,pinned,expires_at,created_at FROM announcements ORDER BY created_at DESC`);if rows==nil{return nil};defer rows.Close();var o []Announcement;for rows.Next(){var e Announcement;rows.Scan(&e.ID,&e.Title,&e.Body,&e.Author,&e.Priority,&e.Channel,&e.Pinned,&e.ExpiresAt,&e.CreatedAt);o=append(o,e)};return o}
+func(d *DB)Update(e *Announcement)error{_,err:=d.db.Exec(`UPDATE announcements SET title=?,body=?,author=?,priority=?,channel=?,pinned=?,expires_at=? WHERE id=?`,e.Title,e.Body,e.Author,e.Priority,e.Channel,e.Pinned,e.ExpiresAt,e.ID);return err}
 func(d *DB)Delete(id string)error{_,err:=d.db.Exec(`DELETE FROM announcements WHERE id=?`,id);return err}
 func(d *DB)Count()int{var n int;d.db.QueryRow(`SELECT COUNT(*) FROM announcements`).Scan(&n);return n}
+
+func(d *DB)Search(q string, filters map[string]string)[]Announcement{
+    where:="1=1"
+    args:=[]any{}
+    if q!=""{
+        where+=" AND (title LIKE ? OR body LIKE ?)"
+        args=append(args,"%"+q+"%");args=append(args,"%"+q+"%");
+    }
+    if v,ok:=filters["priority"];ok&&v!=""{where+=" AND priority=?";args=append(args,v)}
+    if v,ok:=filters["channel"];ok&&v!=""{where+=" AND channel=?";args=append(args,v)}
+    rows,_:=d.db.Query(`SELECT id,title,body,author,priority,channel,pinned,expires_at,created_at FROM announcements WHERE `+where+` ORDER BY created_at DESC`,args...)
+    if rows==nil{return nil};defer rows.Close()
+    var o []Announcement;for rows.Next(){var e Announcement;rows.Scan(&e.ID,&e.Title,&e.Body,&e.Author,&e.Priority,&e.Channel,&e.Pinned,&e.ExpiresAt,&e.CreatedAt);o=append(o,e)};return o
+}
+
+func(d *DB)Stats()map[string]any{
+    m:=map[string]any{"total":d.Count()}
+    return m
+}
